@@ -1,54 +1,560 @@
-(() => {
-  'use strict';
-  const KEY = 'shipper-manager-v1';
-  const $ = s => document.querySelector(s);
-  const els = { stats:$('#stats'), orders:$('#orders'), tabs:$('#tabs'), toast:$('#toast'), search:$('#search'), filters:$('#filters') };
-  const STATUS = { all:'Tất cả', pending:'Chờ giao', delivering:'Đang giao', completed:'Đã hoàn thành', cancelled:'Đã hủy' };
-  let db, activeTab = 'all', preview = [], activeMode = 'quick';
-  const now = () => new Date().toISOString();
-  const clone = x => JSON.parse(JSON.stringify(x));
-  const uid = () => `DH-${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2,5).toUpperCase()}`;
-  const sample = () => ({version:1, seeded:true, orders:[
-    makeOrder({name:'Vy cherry',items:'1 bò',address:'1 xá xíu phomai cổng chính giày da',phone:'0342.630.672',sample:true}),
-    makeOrder({name:'Minh Anh',items:'2 trà đào',address:'cổng trường THPT Tĩnh Gia 3',phone:'0987654321',note:'Gọi trước khi đến'})
-  ], settings:{}});
-  function makeOrder(x={}) { const createdAt=x.createdAt||now(); const orderValue=x.value===undefined||x.value===null||x.value===''?null:Number(x.value); return {id:x.id||uid(),name:x.name||'',items:x.items||'',address:x.address||'',phone:x.phone||'',note:x.note||'',value:orderValue,method:x.method||'bank',paymentStatus:x.paymentStatus||'unpaid',paidAmount:Number(x.paidAmount||0),status:x.status||'pending',createdAt,completedAt:x.completedAt||null,paidAt:x.paidAt||null,sample:!!x.sample,history:x.history||[{at:createdAt,type:'Tạo đơn',detail:'Đơn hàng được tạo'}],payments:x.payments||[]}; }
-  function load(){try{const raw=localStorage.getItem(KEY); db=raw?JSON.parse(raw):sample();}catch{db=sample();} db.orders=(db.orders||[]).map(makeOrder); save();}
-  function save(){localStorage.setItem(KEY,JSON.stringify(db));}
-  function fmt(n){return Number(n||0).toLocaleString('vi-VN')+'đ';}
-  function value(o){return Number.isFinite(o.value)?o.value:0;}
-  function outstanding(o){return Math.max(0,value(o)-Number(o.paidAmount||0));}
-  function toast(s){els.toast.textContent=s;els.toast.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>els.toast.classList.remove('show'),2800);}
-  function event(o,type,detail){o.history.push({at:now(),type,detail});}
-  function setStatus(o,status){if(o.status===status)return;o.status=status;if(status==='completed')o.completedAt=now();event(o,'Trạng thái',STATUS[status]);save();render();}
-  function isPhone(p){return /^[+\d][\d.\s()-]{5,}$/.test(p.trim());}
-  function duplicate(x, ignore){return db.orders.some(o=>o.id!==ignore&&o.name.trim().toLowerCase()===x.name.trim().toLowerCase()&&o.phone.replace(/\D/g,'')&&o.phone.replace(/\D/g,'')===x.phone.replace(/\D/g,''));}
-  function renderStats(){const valid=db.orders.filter(o=>o.status!=='cancelled'), by=s=>db.orders.filter(o=>o.status===s).length; const total=valid.reduce((a,o)=>a+value(o),0), paid=valid.reduce((a,o)=>a+o.paidAmount,0); const entries=[['Tổng đơn',db.orders.length],['Chờ giao',by('pending')],['Hoàn thành',by('completed')],['Đã hủy',by('cancelled')],['Tổng tiền hàng',fmt(total)],['Đã thu',fmt(paid)],['Còn phải thu',fmt(valid.reduce((a,o)=>a+outstanding(o),0))]];els.stats.replaceChildren(...entries.map((e,i)=>node('div',{className:'stat '+(i>3?'highlight':'')},node('span',{},e[0]),node('strong',{},e[1]))));}
-  function renderTabs(){els.tabs.replaceChildren(...Object.entries(STATUS).map(([key,label])=>{const n=db.orders.filter(o=>key==='all'||o.status===key).length;return node('button',{className:key===activeTab?'active':'',onclick:()=>{activeTab=key;syncBottom();renderOrders();}},`${label} (${n})`)}));}
-  function filtered(){const q=els.search.value.trim().toLowerCase(), pay=$('#filterPayment').value, method=$('#filterMethod').value, date=$('#filterDate').value, unpaid=$('#filterOutstanding').checked, sort=$('#sort').value; let list=db.orders.filter(o=>{if(activeTab!=='all'&&o.status!==activeTab)return false;if(q&&!`${o.name} ${o.phone} ${o.address} ${o.id} ${o.items}`.toLowerCase().includes(q))return false;if(pay&&o.paymentStatus!==pay)return false;if(method&&o.method!==method)return false;if(date&&!o.createdAt.startsWith(date))return false;if(unpaid&&(!outstanding(o)||o.status==='cancelled'))return false;return true});const statusOrder={pending:0,delivering:1,completed:2,cancelled:3};list.sort((a,b)=>sort==='oldest'?a.createdAt.localeCompare(b.createdAt):sort==='valueDesc'?value(b)-value(a):sort==='valueAsc'?value(a)-value(b):sort==='status'?statusOrder[a.status]-statusOrder[b.status]:b.createdAt.localeCompare(a.createdAt));return list;}
-  function badge(text, cls){return node('span',{className:'badge '+cls},text)}
-  function copy(text,label){navigator.clipboard?.writeText(text).then(()=>toast(`Đã sao chép ${label}`)).catch(()=>toast('Không thể sao chép trên trình duyệt này'));}
-  function renderOrders(){const list=filtered();els.orders.replaceChildren(...(list.length?list.map(orderCard):[node('div',{className:'empty'},'Không tìm thấy đơn hàng phù hợp.')]));}
-  function orderCard(o){const card=node('article',{className:'card'}), head=node('div',{className:'card-head'}), tags=node('div',{className:'badges'},badge(STATUS[o.status],o.status),badge(o.paymentStatus==='paid'?'Đã thanh toán':o.paymentStatus==='refund'?'Hoàn tiền':'Chưa thanh toán',o.paymentStatus));head.append(node('div',{},node('h3',{},o.name),node('span',{className:'order-id'},o.id)),tags);const detail=node('div',{className:'details'}); addDetail(detail,'Đơn',o.items);addDetail(detail,'Địa chỉ',o.address); const phone=o.phone&&isPhone(o.phone)?node('a',{className:'phone',href:'tel:'+o.phone.replace(/[^+\d]/g,'')},o.phone):node('span',{className:o.phone?'unknown':'unknown'},o.phone||'Chưa có SĐT');detail.append(node('div',{},node('b',{},'Điện thoại'),phone));if(o.note)addDetail(detail,'Ghi chú',o.note);addDetail(detail,'Tạo lúc',new Date(o.createdAt).toLocaleString('vi-VN'));const money=node('div',{className:'money'},Number.isFinite(o.value)?fmt(o.value):node('span',{className:'unknown'},'Chưa xác định giá'));if(o.status!=='cancelled'&&Number.isFinite(o.value))money.append(node('small',{},` · ${outstanding(o)?'Còn '+fmt(outstanding(o)):'Đã đủ'}`));const actions=node('div',{className:'actions'});if(o.phone&&isPhone(o.phone))actions.append(action('Gọi',()=>location.href='tel:'+o.phone.replace(/[^+\d]/g,'')));actions.append(action('Sao chép ĐC',()=>copy(o.address,'địa chỉ')),action('Sao chép đơn',()=>copy(o.items,'nội dung đơn')),action('Sửa',()=>openEdit(o)));if(o.status==='pending')actions.append(action('Bắt đầu giao',()=>setStatus(o,'delivering')));if(o.status==='delivering')actions.append(action('Hoàn thành',()=>setStatus(o,'completed')));if(['pending','delivering'].includes(o.status))actions.append(action('Hủy đơn',()=>{if(confirm('Hủy đơn này?'))setStatus(o,'cancelled')},'danger'));if(o.status==='cancelled')actions.append(action('Khôi phục',()=>setStatus(o,'pending')));if(o.status!=='cancelled'&&o.paymentStatus!=='paid')actions.append(action('Đánh dấu đã thu',()=>openPayment(o)));if(o.status!=='cancelled'&&o.paymentStatus==='paid')actions.append(action('Hoàn tiền',()=>refund(o),'danger'));actions.append(action(o.method==='bank'?'→ Tiền mặt':'→ Chuyển khoản',()=>{o.method=o.method==='bank'?'cash':'bank';event(o,'Phương thức thanh toán',o.method==='bank'?'Chuyển khoản':'Tiền mặt');save();render();}));actions.append(action('Xóa',()=>{if(confirm(`Xóa đơn ${o.name}? Không thể khôi phục.`)){db.orders=db.orders.filter(x=>x.id!==o.id);save();render();toast('Đã xóa đơn');}},'danger'));card.append(head,detail,money,actions);return card;}
-  function addDetail(parent,label,content){parent.append(node('div',{},node('b',{},label),node('span',{},content||'—')))}
-  function action(text, fn, cls=''){return node('button',{type:'button',className:'action '+cls,onclick:fn},text)}
-  function node(tag,attrs={},...kids){const e=document.createElement(tag);Object.entries(attrs).forEach(([k,v])=>{if(k==='className')e.className=v;else if(k.startsWith('on'))e[k]=v;else e.setAttribute(k,v);});kids.flat().forEach(x=>e.append(x instanceof Node?x:document.createTextNode(String(x))));return e;}
-  function render(){renderStats();renderTabs();renderOrders();syncBottom();}
-  function syncBottom(){document.querySelectorAll('[data-bottom]').forEach(b=>b.classList.toggle('active',b.dataset.bottom===activeTab));}
-  function parse(){const sep=$('#separator').value, lines=$('#quickText').value.split(/\r?\n/).filter(x=>x.trim()), errors=[], rows=[];lines.forEach((line,index)=>{const pos=line.indexOf(':');if(pos<1){errors.push(`Dòng ${index+1}: thiếu dấu : sau tên khách hàng.`);return;}const name=line.slice(0,pos).trim(), fields=line.slice(pos+1).split(sep).map(x=>x.trim());if(!name||fields.length<3||!fields[0]||!fields[1]||!fields[2]){errors.push(`Dòng ${index+1}: cần tên, nội dung đơn, địa chỉ và số điện thoại.`);return;}rows.push({name,items:fields[0],address:fields[1],phone:fields[2],note:fields.slice(3).join(sep).trim()});});preview=rows;const err=$('#parseErrors');err.replaceChildren(...errors.map(x=>node('div',{className:'error'},x)));renderPreview();$('#confirmParsed').disabled=!rows.length;}
-  function renderPreview(){const box=$('#preview');box.replaceChildren(...preview.map((o,i)=>{const dupe=duplicate(o);const fields=[['Tên','name'],['Nội dung','items'],['Địa chỉ','address'],['SĐT','phone'],['Ghi chú','note']];const container=node('div',{className:'preview-item '+(dupe?'duplicate':'')},node('strong',{},`Đơn ${i+1}${dupe?' · Có thể trùng':''}`));const grid=node('div',{className:'preview-fields'});fields.forEach(([label,key])=>{const inp=node('input',{value:o[key],placeholder:label,oninput:e=>{preview[i][key]=e.target.value;renderPreview();}});grid.append(node('label',{},label,inp));});container.append(grid);return container;}));}
-  function addOrders(rows){const good=rows.filter(o=>o.name.trim()&&o.items.trim()&&o.address.trim()&&o.phone.trim());if(!good.length)return toast('Chưa có đơn hợp lệ để thêm');const duplicates=good.filter(o=>duplicate(o));if(duplicates.length&&!confirm(`${duplicates.length} đơn có thể trùng. Vẫn thêm?`))return;db.orders.push(...good.map(o=>makeOrder(o)));save();render();$('#quickText').value='';preview=[];renderPreview();$('#parseErrors').replaceChildren();$('#confirmParsed').disabled=true;$('#orderDialog').close();toast(`Đã tạo ${good.length} đơn hàng`);}
-  function openAdd(){activeMode='quick';setMode();$('#orderDialog').showModal();}
-  function setMode(){document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('active',b.dataset.mode===activeMode));$('#quickEntry').classList.toggle('hidden',activeMode!=='quick');$('#manualEntry').classList.toggle('hidden',activeMode!=='manual');}
-  function openEdit(o){$('#eId').value=o.id;[['eName','name'],['ePhone','phone'],['eItems','items'],['eAddress','address'],['eNote','note']].forEach(([id,k])=>$('#'+id).value=o[k]);$('#eValue').value=Number.isFinite(o.value)?o.value:'';$('#eMethod').value=o.method;$('#editDialog').showModal();}
-  function saveEdit(){const o=db.orders.find(x=>x.id===$('#eId').value);if(!o)return;const fields={name:$('#eName').value.trim(),phone:$('#ePhone').value.trim(),items:$('#eItems').value.trim(),address:$('#eAddress').value.trim(),note:$('#eNote').value.trim(),method:$('#eMethod').value};if(!fields.name||!fields.items||!fields.address)return toast('Vui lòng điền các trường bắt buộc');const raw=$('#eValue').value; if(raw!==''&&Number(raw)<0)return toast('Giá trị đơn không thể âm');Object.assign(o,fields,{value:raw===''?null:Number(raw)});event(o,'Chỉnh sửa','Cập nhật thông tin đơn');save();$('#editDialog').close();render();toast('Đã lưu thay đổi');}
-  function openPayment(o){$('#pId').value=o.id;$('#pAmount').value=outstanding(o)||value(o)||'';$('#paymentInfo').textContent=`${o.name} · Giá trị: ${Number.isFinite(o.value)?fmt(o.value):'chưa xác định'}`;$('#paymentDialog').showModal();}
-  function savePayment(){const o=db.orders.find(x=>x.id===$('#pId').value), amount=Number($('#pAmount').value);if(!o||!Number.isFinite(amount)||amount<0)return toast('Số tiền không hợp lệ');o.paidAmount=amount;o.paymentStatus='paid';o.paidAt=now();o.payments.push({at:o.paidAt,amount,method:o.method});event(o,'Thanh toán',`Đã thu ${fmt(amount)} bằng ${o.method==='bank'?'chuyển khoản':'tiền mặt'}`);save();$('#paymentDialog').close();render();toast('Đã ghi nhận thanh toán');}
-  function refund(o){if(!confirm(`Ghi nhận hoàn tiền ${fmt(o.paidAmount)} cho đơn này?`))return;o.payments.push({at:now(),amount:-o.paidAmount,method:o.method});event(o,'Hoàn tiền',fmt(o.paidAmount));o.paidAmount=0;o.paymentStatus='refund';save();render();toast('Đã ghi nhận hoàn tiền');}
-  function exportCsv(){const headers=['Mã đơn','Khách hàng','Nội dung','Địa chỉ','Điện thoại','Ghi chú','Giá trị','Phương thức','Thanh toán','Đã thu','Giao hàng','Tạo lúc'];const quote=s=>'"'+String(s??'').replaceAll('"','""')+'"';const txt='\ufeff'+[headers,...db.orders.map(o=>[o.id,o.name,o.items,o.address,o.phone,o.note,o.value??'',o.method==='bank'?'Chuyển khoản':'Tiền mặt',o.paymentStatus,o.paidAmount,STATUS[o.status],o.createdAt])].map(r=>r.map(quote).join(',')).join('\n');download(new Blob([txt],{type:'text/csv;charset=utf-8'}),'don-hang-shipper.csv');}
-  function download(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),500);}
-  function backup(){download(new Blob([JSON.stringify(db,null,2)],{type:'application/json'}),'shipper-manager-backup.json');}
-  function restore(file){if(!file)return;const r=new FileReader();r.onload=()=>{try{const incoming=JSON.parse(r.result);if(!Array.isArray(incoming.orders))throw Error();if(!confirm('Khôi phục sẽ ghi đè toàn bộ dữ liệu hiện tại. Tiếp tục?'))return;db={version:1,seeded:!!incoming.seeded,orders:incoming.orders.map(makeOrder),settings:incoming.settings||{}};save();render();toast('Đã khôi phục dữ liệu');}catch{toast('Tệp JSON không đúng định dạng sao lưu.');}};r.readAsText(file);}
-  function bind(){$('#openAdd').onclick=openAdd;$('#floatingAdd').onclick=openAdd;$('#toggleFilters').onclick=()=>els.filters.classList.toggle('hidden');$('#dataMenu').onclick=()=>$('#dataPanel').classList.toggle('hidden');['input','change'].forEach(ev=>{els.search.addEventListener(ev,renderOrders);['#filterPayment','#filterMethod','#filterDate','#filterOutstanding','#sort'].forEach(s=>$(s).addEventListener(ev,renderOrders));});$('#clearFilters').onclick=()=>{['#filterPayment','#filterMethod','#filterDate','#sort'].forEach(s=>$(s).selectedIndex=0);$('#filterOutstanding').checked=false;els.search.value='';renderOrders();};document.querySelectorAll('[data-bottom]').forEach(b=>b.onclick=()=>{activeTab=b.dataset.bottom;render();});document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{activeMode=b.dataset.mode;setMode();});$('#parse').onclick=parse;$('#confirmParsed').onclick=()=>addOrders(preview);$('#addManual').onclick=()=>{const o={name:$('#mName').value.trim(),phone:$('#mPhone').value.trim(),items:$('#mItems').value.trim(),address:$('#mAddress').value.trim(),note:$('#mNote').value.trim()};if(!o.name||!o.items||!o.address)return toast('Vui lòng điền tên, nội dung đơn và địa chỉ');addOrders([o]);$('#manualEntry').querySelectorAll('input,textarea').forEach(x=>x.value='');};$('#saveEdit').onclick=e=>{e.preventDefault();saveEdit();};$('#savePayment').onclick=e=>{e.preventDefault();savePayment();};$('#exportCsv').onclick=exportCsv;$('#backupJson').onclick=backup;$('#restoreJson').onchange=e=>restore(e.target.files[0]);$('#clearSamples').onclick=()=>{const n=db.orders.filter(o=>o.sample).length;if(!n)return toast('Không còn dữ liệu mẫu');if(confirm(`Xóa ${n} đơn dữ liệu mẫu?`)){db.orders=db.orders.filter(o=>!o.sample);db.seeded=false;save();render();toast('Đã xóa dữ liệu mẫu');}};$('#clearAll').onclick=()=>{if(confirm('Xóa toàn bộ đơn hàng và lịch sử? Không thể khôi phục nếu chưa sao lưu.')){db={version:1,seeded:false,orders:[],settings:{}};save();render();toast('Đã xóa toàn bộ dữ liệu');}};}
-  load();bind();$('#todayLabel').textContent=new Date().toLocaleDateString('vi-VN',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'});render();
-})();
+const STORAGE_KEY = "tom_shipper_orders_v1";
+const MAX_STORAGE_DAYS = 180;
+
+let currentTab = "home";
+let currentStep = 1;
+let pendingConfirmAction = null;
+
+const $ = (selector) => document.querySelector(selector);
+const $$ = (selector) => [...document.querySelectorAll(selector)];
+
+function localDateString(date = new Date()) {
+  const timezoneOffset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - timezoneOffset).toISOString().slice(0, 10);
+}
+
+function formatDate(dateString) {
+  return new Intl.DateTimeFormat("vi-VN", {
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric"
+  }).format(new Date(`${dateString}T00:00:00`));
+}
+
+function formatCurrency(value) {
+  return `${new Intl.NumberFormat("vi-VN").format(Number(value || 0))} ₫`;
+}
+
+function cleanPhone(phone) {
+  return String(phone || "").replace(/[^\d+]/g, "");
+}
+
+function parseAmount(value) {
+  if (!value) return 0;
+
+  const cleaned = String(value).replace(/[^\d]/g, "");
+  return Number(cleaned) || 0;
+}
+
+function getOrders() {
+  try {
+    const orders = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+    return Array.isArray(orders) ? orders : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveOrders(orders) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(orders));
+}
+
+function cleanupOldOrders() {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - MAX_STORAGE_DAYS);
+  cutoff.setHours(0, 0, 0, 0);
+
+  const cleanOrders = getOrders().filter((order) => {
+    const orderDate = new Date(`${order.date}T00:00:00`);
+    return orderDate >= cutoff;
+  });
+
+  saveOrders(cleanOrders);
+}
+
+function createId() {
+  return `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function addOrder(orderData) {
+  const order = {
+    id: createId(),
+    customerName: orderData.customerName.trim(),
+    phone: cleanPhone(orderData.phone),
+    detail: orderData.detail.trim(),
+    address: orderData.address.trim(),
+    note: orderData.note.trim(),
+    amount: parseAmount(orderData.amount),
+    paymentMethod: "bank",
+    status: "pending",
+    date: localDateString(),
+    createdAt: new Date().toISOString(),
+    completedAt: null
+  };
+
+  const orders = getOrders();
+  orders.unshift(order);
+  saveOrders(orders);
+  renderAll();
+  showToast("Đã thêm đơn hàng mới.");
+}
+
+function updateOrder(id, updates) {
+  const orders = getOrders().map((order) => {
+    if (order.id !== id) return order;
+    return { ...order, ...updates };
+  });
+
+  saveOrders(orders);
+  renderAll();
+}
+
+function getTodayOrders() {
+  const today = localDateString();
+  return getOrders().filter((order) => order.date === today);
+}
+
+function getStatusInfo(status) {
+  const info = {
+    pending: { text: "Đang giao", className: "status-pending" },
+    completed: { text: "Hoàn thành", className: "status-completed" },
+    cancelled: { text: "Đã hủy", className: "status-cancelled" }
+  };
+
+  return info[status] || info.pending;
+}
+
+function escapeHTML(value = "") {
+  const map = {
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#039;"
+  };
+
+  return String(value).replace(/[&<>"']/g, (char) => map[char]);
+}
+
+function createOrderCard(order, historyMode = false) {
+  const status = getStatusInfo(order.status);
+  const isFinished = order.status !== "pending";
+  const isCod = order.paymentMethod === "cod";
+  const mapUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.address)}`;
+  const telLink = `tel:${encodeURIComponent(order.phone)}`;
+
+  return `
+    <article class="order-card ${order.status}" data-order-id="${order.id}">
+      <div class="order-main">
+        <div class="customer-row">
+          <div>
+            <h3 class="customer-name">${escapeHTML(order.customerName)}</h3>
+            <a class="customer-phone" href="${telLink}">📞 ${escapeHTML(order.phone || "Chưa có số")}</a>
+          </div>
+          <span class="status-badge ${status.className}">${status.text}</span>
+        </div>
+
+        <p class="order-detail">${escapeHTML(order.detail)}</p>
+
+        <div class="address-line">
+          <svg><use href="#icon-map"></use></svg>
+          <span>${escapeHTML(order.address)}</span>
+        </div>
+
+        ${
+          order.note
+            ? `
+              <div class="note-line">
+                <span>📝</span>
+                <span>${escapeHTML(order.note)}</span>
+              </div>
+            `
+            : ""
+        }
+
+        <div class="order-payment">
+          <div class="payment-label">
+            <svg><use href="#${isCod ? "icon-money" : "icon-bank"}"></use></svg>
+            <span>${isCod ? "Tiền mặt (COD)" : "Chuyển khoản (Bank)"}</span>
+          </div>
+
+          ${order.amount > 0 ? `<strong class="order-amount">${formatCurrency(order.amount)}</strong>` : ""}
+
+          ${
+            !isFinished
+              ? `
+                <button class="payment-switch ${isCod ? "cod" : ""}" data-action="toggle-payment" data-id="${order.id}">
+                  ${isCod ? "Đổi sang Bank" : "Khách trả tiền mặt"}
+                </button>
+              `
+              : ""
+          }
+        </div>
+      </div>
+
+      ${
+        !historyMode && !isFinished
+          ? `
+            <div class="quick-actions">
+              <a class="quick-action call" href="${telLink}" aria-label="Gọi ${escapeHTML(order.customerName)}">
+                <svg><use href="#icon-phone"></use></svg>
+                <span>Gọi ngay</span>
+              </a>
+              <a class="quick-action map" href="${mapUrl}" target="_blank" rel="noopener" aria-label="Mở bản đồ">
+                <svg><use href="#icon-map"></use></svg>
+                <span>Bản đồ</span>
+              </a>
+              <button class="quick-action complete" data-action="complete" data-id="${order.id}">
+                <svg><use href="#icon-check"></use></svg>
+                <span>Hoàn thành</span>
+              </button>
+              <button class="quick-action cancel" data-action="cancel" data-id="${order.id}">
+                <svg><use href="#icon-close"></use></svg>
+                <span>Hủy đơn</span>
+              </button>
+            </div>
+          `
+          : ""
+      }
+    </article>
+  `;
+}
+
+function renderHome() {
+  const todayOrders = getTodayOrders();
+  const activeOrders = todayOrders.filter((order) => order.status === "pending");
+
+  $("#todayLabel").textContent = formatDate(localDateString());
+  $("#todayCount").textContent = `${activeOrders.length} đơn`;
+
+  $("#orderList").innerHTML = activeOrders.map((order) => createOrderCard(order)).join("");
+  $("#emptyHome").classList.toggle("hidden", activeOrders.length > 0);
+}
+
+function renderStats() {
+  const todayOrders = getTodayOrders();
+
+  const pendingCodOrders = todayOrders.filter(
+    (order) => order.status === "pending" && order.paymentMethod === "cod"
+  );
+
+  const successfulOrders = todayOrders.filter((order) => order.status === "completed");
+
+  const successfulBankOrders = successfulOrders.filter(
+    (order) => order.paymentMethod === "bank"
+  );
+
+  const codTotal = pendingCodOrders.reduce((total, order) => total + Number(order.amount || 0), 0);
+  const bankTotal = successfulBankOrders.reduce((total, order) => total + Number(order.amount || 0), 0);
+  const revenueTotal = successfulOrders.reduce((total, order) => total + Number(order.amount || 0), 0);
+
+  $("#statsDateLabel").textContent = formatDate(localDateString());
+  $("#codTotal").textContent = formatCurrency(codTotal);
+  $("#bankTotal").textContent = formatCurrency(bankTotal);
+  $("#revenueTotal").textContent = formatCurrency(revenueTotal);
+  $("#codCount").textContent = `${pendingCodOrders.length} đơn đang giao`;
+  $("#bankCount").textContent = `${successfulBankOrders.length} đơn thành công`;
+  $("#completedSummary").textContent = `${successfulOrders.length} đơn đã hoàn thành`;
+}
+
+function renderHistory() {
+  const selectedDate = $("#historyDate").value || localDateString();
+  const historyOrders = getOrders()
+    .filter((order) => order.date === selectedDate)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  $("#historyList").innerHTML = historyOrders
+    .map((order) => createOrderCard(order, true))
+    .join("");
+
+  $("#emptyHistory").classList.toggle("hidden", historyOrders.length > 0);
+}
+
+function renderAll() {
+  cleanupOldOrders();
+  renderHome();
+  renderStats();
+  renderHistory();
+}
+
+function switchTab(tabName) {
+  currentTab = tabName;
+
+  $$(".tab-content").forEach((tab) => tab.classList.remove("active"));
+  $$(".nav-item").forEach((item) => item.classList.remove("active"));
+
+  $(`#${tabName}Tab`).classList.add("active");
+  $(`.nav-item[data-tab="${tabName}"]`).classList.add("active");
+
+  if (tabName === "history") renderHistory();
+  if (tabName === "stats") renderStats();
+}
+
+function showModal() {
+  resetOrderModal();
+  $("#orderModal").classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+
+  setTimeout(() => $("#customerName").focus(), 180);
+}
+
+function hideModal() {
+  $("#orderModal").classList.add("hidden");
+  document.body.style.overflow = "";
+}
+
+function resetOrderModal() {
+  currentStep = 1;
+  $("#manualOrderForm").reset();
+  $("#pasteOrderForm").reset();
+
+  setInputMode("manual");
+  updateWizard();
+}
+
+function setInputMode(mode) {
+  $$(".mode-btn").forEach((button) => {
+    button.classList.toggle("active", button.dataset.mode === mode);
+  });
+
+  $("#manualOrderForm").classList.toggle("hidden", mode !== "manual");
+  $("#pasteOrderForm").classList.toggle("hidden", mode !== "paste");
+}
+
+function updateWizard() {
+  $$(".form-step").forEach((step) => {
+    step.classList.toggle("active", Number(step.dataset.step) === currentStep);
+  });
+
+  $("#stepProgressText").textContent = `Bước ${currentStep}/5`;
+  $("#progressBar").style.width = `${currentStep * 20}%`;
+  $("#prevStepBtn").classList.toggle("hidden", currentStep === 1);
+  $("#nextStepBtn").classList.toggle("hidden", currentStep === 5);
+  $("#saveManualBtn").classList.toggle("hidden", currentStep !== 5);
+
+  const currentInput = $(`.form-step[data-step="${currentStep}"] input, .form-step[data-step="${currentStep}"] textarea`);
+
+  setTimeout(() => currentInput?.focus(), 100);
+}
+
+function validateCurrentStep() {
+  const step = $(`.form-step[data-step="${currentStep}"]`);
+  const requiredInput = step.querySelector("[required]");
+
+  if (!requiredInput || requiredInput.value.trim()) return true;
+
+  requiredInput.focus();
+  showToast("Vui lòng nhập thông tin trước khi tiếp tục.");
+  return false;
+}
+
+function openConfirm({ title, message, type = "danger", onAccept }) {
+  pendingConfirmAction = onAccept;
+
+  $("#confirmTitle").textContent = title;
+  $("#confirmMessage").textContent = message;
+  $("#confirmAcceptBtn").textContent = type === "success" ? "Hoàn thành" : "Xác nhận";
+  $("#confirmAcceptBtn").className = type === "success" ? "primary-btn" : "danger-btn";
+
+  $("#confirmIcon").innerHTML =
+    type === "success"
+      ? '<svg><use href="#icon-check"></use></svg>'
+      : '<svg><use href="#icon-close"></use></svg>';
+
+  $("#confirmModal").classList.remove("hidden");
+}
+
+function closeConfirm() {
+  $("#confirmModal").classList.add("hidden");
+  pendingConfirmAction = null;
+}
+
+function showToast(message) {
+  const toast = $("#toast");
+  toast.textContent = message;
+  toast.classList.remove("hidden");
+
+  clearTimeout(showToast.timeout);
+  showToast.timeout = setTimeout(() => {
+    toast.classList.add("hidden");
+  }, 2600);
+}
+
+function normalizeKey(key) {
+  return key
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, "");
+}
+
+function parseRawOrder(text) {
+  const result = {
+    customerName: "",
+    phone: "",
+    detail: "",
+    address: "",
+    note: "",
+    amount: 0
+  };
+
+  const aliases = {
+    customerName: ["ten", "khachhang", "tenkhach", "nguoinhan", "name"],
+    phone: ["sdt", "sodienthoai", "dienthoai", "phone", "tel"],
+    detail: ["don", "chitietdon", "sanpham", "mon", "hang", "order"],
+    address: ["diachi", "dc", "address"],
+    note: ["ghichu", "note"],
+    amount: ["tien", "sotien", "thanhtien", "gia", "tong"]
+  };
+
+  const fields = text
+    .replace(/\r/g, "")
+    .split(/,|\n/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  fields.forEach((field) => {
+    const colonIndex = field.indexOf(":");
+    if (colonIndex === -1) return;
+
+    const rawKey = normalizeKey(field.slice(0, colonIndex));
+    const value = field.slice(colonIndex + 1).trim();
+
+    Object.entries(aliases).forEach(([property, names]) => {
+      if (names.includes(rawKey) && value) {
+        result[property] = property === "amount" ? parseAmount(value) : value;
+      }
+    });
+  });
+
+  return result;
+}
+
+function handleOrderAction(event) {
+  const button = event.target.closest("[data-action]");
+  if (!button) return;
+
+  const { action, id } = button.dataset;
+  const order = getOrders().find((item) => item.id === id);
+  if (!order) return;
+
+  if (action === "toggle-payment") {
+    const nextPayment = order.paymentMethod === "bank" ? "cod" : "bank";
+    updateOrder(id, { paymentMethod: nextPayment });
+    showToast(nextPayment === "cod" ? "Đã chuyển sang tiền mặt COD." : "Đã chuyển sang chuyển khoản.");
+  }
+
+  if (action === "complete") {
+    openConfirm({
+      title: "Hoàn thành đơn?",
+      message: `Xác nhận đã giao thành công cho ${order.customerName}.`,
+      type: "success",
+      onAccept: () => {
+        updateOrder(id, {
+          status: "completed",
+          completedAt: new Date().toISOString()
+        });
+        showToast("Đơn hàng đã hoàn thành.");
+      }
+    });
+  }
+
+  if (action === "cancel") {
+    openConfirm({
+      title: "Hủy đơn hàng?",
+      message: `Đơn của ${order.customerName} sẽ được chuyển sang trạng thái đã hủy.`,
+      type: "danger",
+      onAccept: () => {
+        updateOrder(id, { status: "cancelled" });
+        showToast("Đơn hàng đã được hủy.");
+      }
+    });
+  }
+}
+
+function initEvents() {
+  $$(".nav-item").forEach((button) => {
+    button.addEventListener("click", () => switchTab(button.dataset.tab));
+  });
+
+  ["#addOrderHeaderBtn", "#emptyAddOrderBtn", "#fabAddOrder"].forEach((selector) => {
+    $(selector).addEventListener("click", showModal);
+  });
+
+  $("#closeModalBtn").addEventListener("click", hideModal);
+
+  $("#orderModal").addEventListener("click", (event) => {
+    if (event.target === $("#orderModal")) hideModal();
+  });
+
+  $$(".mode-btn").forEach((button) => {
+    button.addEventListener("click", () => setInputMode(button.dataset.mode));
+  });
+
+  $("#nextStepBtn").addEventListener("click", () => {
+    if (!validateCurrentStep()) return;
+    currentStep = Math.min(5, currentStep + 1);
+    updateWizard();
+  });
+
+  $("#prevStepBtn").addEventListener("click", () => {
+    currentStep = Math.max(1, currentStep - 1);
+    updateWizard();
+  });
+
+  $("#manualOrderForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+
+    if (!validateCurrentStep()) return;
+
+    addOrder({
+      customerName: $("#customerName").value,
+      phone: $("#customerPhone").value,
+      detail: $("#orderDetail").value,
+      address: $("#customerAddress").value,
+      note: $("#orderNote").value,
+      amount: $("#orderAmount").value
+    });
+
+    hideModal();
+  });
+
+  $("#pasteOrderForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+
+    const rawText = $("#rawOrderText").value.trim();
+
+    if (!rawText) {
+      showToast("Vui lòng dán nội dung đơn hàng.");
+      return;
+    }
+
+    const parsedOrder = parseRawOrder(rawText);
+
+    if (!parsedOrder.customerName || !parsedOrder.phone || !parsedOrder.detail || !parsedOrder.address) {
+      showToast("Không đủ dữ liệu. Cần có Tên, SĐT, Đơn và Địa chỉ.");
+      return;
+    }
+
+    addOrder(parsedOrder);
+    hideModal();
+  });
+
+  $("#historyDate").addEventListener("change", renderHistory);
+
+  $("#orderList").addEventListener("click", handleOrderAction);
+  $("#historyList").addEventListener("click", handleOrderAction);
+
+  $("#confirmCancelBtn").addEventListener("click", closeConfirm);
+
+  $("#confirmAcceptBtn").addEventListener("click", () => {
+    if (typeof pendingConfirmAction === "function") {
+      pendingConfirmAction();
+    }
+    closeConfirm();
+  });
+
+  $("#confirmModal").addEventListener("click", (event) => {
+    if (event.target === $("#confirmModal")) closeConfirm();
+  });
+}
+
+function initializeApp() {
+  cleanupOldOrders();
+  $("#historyDate").value = localDateString();
+  initEvents();
+  renderAll();
+}
+
+document.addEventListener("DOMContentLoaded", initializeApp);
