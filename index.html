@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1769e0">
+  <title>Shipper Manager</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar"><div><p class="eyebrow">QUẢN LÝ GIAO HÀNG</p><h1>SHIPPER MANAGER</h1><p id="todayLabel" class="muted"></p></div><button id="openAdd" class="primary add-top">+ Thêm đơn</button></header>
+  <main>
+    <section class="stats" id="stats"></section>
+    <section class="toolbar">
+      <input id="search" type="search" placeholder="Tìm tên, SĐT, địa chỉ, mã đơn, món…" aria-label="Tìm kiếm đơn hàng">
+      <button id="toggleFilters" class="outline">Bộ lọc</button>
+      <button id="dataMenu" class="outline">Dữ liệu</button>
+    </section>
+    <section id="filters" class="filters hidden">
+      <select id="filterPayment"><option value="">Mọi thanh toán</option><option value="unpaid">Chưa thanh toán</option><option value="paid">Đã thanh toán</option><option value="refund">Hoàn tiền</option></select>
+      <select id="filterMethod"><option value="">Mọi phương thức</option><option value="bank">Chuyển khoản</option><option value="cash">Tiền mặt</option></select>
+      <input id="filterDate" type="date" aria-label="Ngày tạo đơn">
+      <label class="check"><input id="filterOutstanding" type="checkbox"> Chỉ chưa thu tiền</label>
+      <select id="sort"><option value="newest">Mới nhất</option><option value="oldest">Cũ nhất</option><option value="valueDesc">Giá trị cao</option><option value="valueAsc">Giá trị thấp</option><option value="status">Trạng thái</option></select>
+      <button id="clearFilters" class="text-btn">Xóa lọc</button>
+    </section>
+    <nav id="tabs" class="tabs" aria-label="Trạng thái đơn"></nav>
+    <section id="dataPanel" class="data-panel hidden">
+      <button id="exportCsv" class="outline">Xuất CSV</button><button id="backupJson" class="outline">Sao lưu JSON</button>
+      <label class="outline import-label">Khôi phục JSON<input id="restoreJson" type="file" accept="application/json,.json" hidden></label>
+      <button id="clearSamples" class="outline">Xóa dữ liệu mẫu</button><button id="clearAll" class="danger-outline">Xóa toàn bộ</button>
+    </section>
+    <section id="orders" class="orders"></section>
+  </main>
+  <button id="floatingAdd" class="fab" aria-label="Thêm đơn hàng">+</button>
+  <nav class="bottom-nav"><button data-bottom="all" class="active">Tất cả</button><button data-bottom="pending">Chờ giao</button><button data-bottom="delivering">Đang giao</button><button data-bottom="completed">Hoàn thành</button></nav>
+
+  <dialog id="orderDialog" class="dialog wide"><form method="dialog" id="orderForm"><header><div><p class="eyebrow">TẠO ĐƠN</p><h2>Thêm đơn hàng</h2></div><button class="icon" value="cancel" aria-label="Đóng">×</button></header>
+    <div class="mode-switch"><button type="button" data-mode="quick" class="active">Nhập nhanh</button><button type="button" data-mode="manual">Nhập thủ công</button></div>
+    <section id="quickEntry"><label>Chế độ phân tích <select id="separator"><option value=",">Dấu phẩy (,)</option><option value="|">Dấu gạch đứng (|)</option></select></label><label>Dán đơn — mỗi dòng một đơn<textarea id="quickText" rows="6" placeholder="Vy cherry: 1 bò, 1 xá xíu phomai cổng chính giày da, 0342.630.672"></textarea></label><button type="button" id="parse" class="outline full">Phân tích đơn hàng</button><div id="parseErrors"></div><div id="preview" class="preview"></div><button type="button" id="confirmParsed" class="primary full" disabled>Xác nhận thêm đơn</button></section>
+    <section id="manualEntry" class="hidden"><div class="form-grid"><label>Tên khách hàng*<input id="mName" required></label><label>Số điện thoại<input id="mPhone" inputmode="tel"></label><label class="span2">Nội dung đơn hàng*<input id="mItems" required></label><label class="span2">Địa chỉ giao hàng*<input id="mAddress" required></label><label class="span2">Ghi chú<textarea id="mNote" rows="2"></textarea></label></div><button type="button" id="addManual" class="primary full">Thêm đơn thủ công</button></section>
+  </form></dialog>
+  <dialog id="editDialog" class="dialog"><form method="dialog" id="editForm"><header><h2>Chỉnh sửa đơn</h2><button class="icon" value="cancel">×</button></header><input id="eId" type="hidden"><div class="form-grid"><label>Tên khách hàng*<input id="eName" required></label><label>Số điện thoại<input id="ePhone"></label><label class="span2">Nội dung đơn*<input id="eItems" required></label><label class="span2">Địa chỉ*<input id="eAddress" required></label><label class="span2">Ghi chú<textarea id="eNote" rows="2"></textarea></label><label>Giá trị đơn (đ)<input id="eValue" type="number" min="0" step="1000" placeholder="Chưa xác định"></label><label>Phương thức<select id="eMethod"><option value="bank">Chuyển khoản</option><option value="cash">Tiền mặt</option></select></label></div><menu><button value="cancel" class="outline">Hủy</button><button id="saveEdit" value="default" class="primary">Lưu thay đổi</button></menu></form></dialog>
+  <dialog id="paymentDialog" class="dialog"><form method="dialog" id="paymentForm"><header><h2>Ghi nhận thanh toán</h2><button class="icon" value="cancel">×</button></header><input id="pId" type="hidden"><p id="paymentInfo" class="muted"></p><label>Số tiền thực thu (đ)<input id="pAmount" type="number" min="0" step="1000" required></label><menu><button value="cancel" class="outline">Hủy</button><button id="savePayment" value="default" class="primary">Xác nhận đã thu</button></menu></form></dialog>
+  <div id="toast" role="status"></div>
+  <script src="app.js"></script>
+</body></html>
