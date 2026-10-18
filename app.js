@@ -1,16 +1,14 @@
-const STORAGE_KEY = "tom_shipper_orders_v1";
+const STORAGE_KEY = "tom_shipper_orders_v2";
 const MAX_STORAGE_DAYS = 180;
 
-let currentTab = "home";
-let currentStep = 1;
 let pendingConfirmAction = null;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 
-function localDateString(date = new Date()) {
-  const timezoneOffset = date.getTimezoneOffset() * 60000;
-  return new Date(date.getTime() - timezoneOffset).toISOString().slice(0, 10);
+function getLocalDate(date = new Date()) {
+  const offset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 10);
 }
 
 function formatDate(dateString) {
@@ -22,25 +20,32 @@ function formatDate(dateString) {
   }).format(new Date(`${dateString}T00:00:00`));
 }
 
-function formatCurrency(value) {
-  return `${new Intl.NumberFormat("vi-VN").format(Number(value || 0))} ₫`;
+function createId() {
+  return `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function cleanPhone(phone) {
-  return String(phone || "").replace(/[^\d+]/g, "");
+function escapeHTML(value = "") {
+  return String(value).replace(/[&<>"']/g, (character) => {
+    const entities = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#039;"
+    };
+
+    return entities[character];
+  });
 }
 
-function parseAmount(value) {
-  if (!value) return 0;
-
-  const cleaned = String(value).replace(/[^\d]/g, "");
-  return Number(cleaned) || 0;
+function cleanPhone(value = "") {
+  return String(value).replace(/[^\d+]/g, "");
 }
 
 function getOrders() {
   try {
-    const orders = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-    return Array.isArray(orders) ? orders : [];
+    const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+    return Array.isArray(data) ? data : [];
   } catch {
     return [];
   }
@@ -50,105 +55,95 @@ function saveOrders(orders) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(orders));
 }
 
-function cleanupOldOrders() {
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - MAX_STORAGE_DAYS);
-  cutoff.setHours(0, 0, 0, 0);
+function cleanOldOrders() {
+  const limitDate = new Date();
+  limitDate.setDate(limitDate.getDate() - MAX_STORAGE_DAYS);
+  limitDate.setHours(0, 0, 0, 0);
 
-  const cleanOrders = getOrders().filter((order) => {
-    const orderDate = new Date(`${order.date}T00:00:00`);
-    return orderDate >= cutoff;
+  const validOrders = getOrders().filter((order) => {
+    return new Date(`${order.date}T00:00:00`) >= limitDate;
   });
 
-  saveOrders(cleanOrders);
+  saveOrders(validOrders);
 }
 
-function createId() {
-  return `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+function saveNewOrders(newOrders) {
+  if (!newOrders.length) return;
+
+  const allOrders = getOrders();
+  allOrders.unshift(...newOrders);
+  saveOrders(allOrders);
+  renderAll();
 }
 
-function addOrder(orderData) {
-  const order = {
+function createOrder(data) {
+  return {
     id: createId(),
-    customerName: orderData.customerName.trim(),
-    phone: cleanPhone(orderData.phone),
-    detail: orderData.detail.trim(),
-    address: orderData.address.trim(),
-    note: orderData.note.trim(),
-    amount: parseAmount(orderData.amount),
-    paymentMethod: "bank",
+    customerName: data.customerName.trim(),
+    phone: cleanPhone(data.phone),
+    detail: data.detail.trim(),
+    address: data.address.trim(),
+    note: data.note.trim(),
+    paymentMethod: data.paymentMethod || "bank",
     status: "pending",
-    date: localDateString(),
+    date: getLocalDate(),
     createdAt: new Date().toISOString(),
     completedAt: null
   };
-
-  const orders = getOrders();
-  orders.unshift(order);
-  saveOrders(orders);
-  renderAll();
-  showToast("Đã thêm đơn hàng mới.");
 }
 
 function updateOrder(id, updates) {
   const orders = getOrders().map((order) => {
-    if (order.id !== id) return order;
-    return { ...order, ...updates };
+    return order.id === id ? { ...order, ...updates } : order;
   });
 
   saveOrders(orders);
   renderAll();
 }
 
-function getTodayOrders() {
-  const today = localDateString();
-  return getOrders().filter((order) => order.date === today);
-}
-
-function getStatusInfo(status) {
-  const info = {
-    pending: { text: "Đang giao", className: "status-pending" },
-    completed: { text: "Hoàn thành", className: "status-completed" },
-    cancelled: { text: "Đã hủy", className: "status-cancelled" }
+function getStatus(status) {
+  const statuses = {
+    pending: {
+      label: "Đang giao",
+      className: "status-pending"
+    },
+    completed: {
+      label: "Hoàn thành",
+      className: "status-completed"
+    },
+    cancelled: {
+      label: "Đã hủy",
+      className: "status-cancelled"
+    }
   };
 
-  return info[status] || info.pending;
+  return statuses[status] || statuses.pending;
 }
 
-function escapeHTML(value = "") {
-  const map = {
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#039;"
-  };
-
-  return String(value).replace(/[&<>"']/g, (char) => map[char]);
-}
-
-function createOrderCard(order, historyMode = false) {
-  const status = getStatusInfo(order.status);
-  const isFinished = order.status !== "pending";
-  const isCod = order.paymentMethod === "cod";
+function buildOrderCard(order, isHistory = false) {
+  const status = getStatus(order.status);
+  const isPending = order.status === "pending";
+  const isCash = order.paymentMethod === "cod";
+  const telUrl = `tel:${encodeURIComponent(order.phone)}`;
   const mapUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.address)}`;
-  const telLink = `tel:${encodeURIComponent(order.phone)}`;
 
   return `
-    <article class="order-card ${order.status}" data-order-id="${order.id}">
+    <article class="order-card ${order.status}">
       <div class="order-main">
         <div class="customer-row">
           <div>
             <h3 class="customer-name">${escapeHTML(order.customerName)}</h3>
-            <a class="customer-phone" href="${telLink}">📞 ${escapeHTML(order.phone || "Chưa có số")}</a>
+            <a class="customer-phone" href="${telUrl}">
+              📞 ${escapeHTML(order.phone || "Chưa có số điện thoại")}
+            </a>
           </div>
-          <span class="status-badge ${status.className}">${status.text}</span>
+          <span class="status-badge ${status.className}">${status.label}</span>
         </div>
 
         <p class="order-detail">${escapeHTML(order.detail)}</p>
 
         <div class="address-line">
-          <svg><use href="#icon-map"></use></svg>
+          <svg><use href="#i-map"></use></svg>
           <span>${escapeHTML(order.address)}</span>
         </div>
 
@@ -163,19 +158,21 @@ function createOrderCard(order, historyMode = false) {
             : ""
         }
 
-        <div class="order-payment">
-          <div class="payment-label">
-            <svg><use href="#${isCod ? "icon-money" : "icon-bank"}"></use></svg>
-            <span>${isCod ? "Tiền mặt (COD)" : "Chuyển khoản (Bank)"}</span>
+        <div class="payment-row">
+          <div class="payment-type">
+            <svg><use href="#${isCash ? "i-card" : "i-bank"}"></use></svg>
+            <span>${isCash ? "Tiền mặt (COD)" : "Chuyển khoản (Bank)"}</span>
           </div>
 
-          ${order.amount > 0 ? `<strong class="order-amount">${formatCurrency(order.amount)}</strong>` : ""}
-
           ${
-            !isFinished
+            isPending
               ? `
-                <button class="payment-switch ${isCod ? "cod" : ""}" data-action="toggle-payment" data-id="${order.id}">
-                  ${isCod ? "Đổi sang Bank" : "Khách trả tiền mặt"}
+                <button
+                  class="payment-toggle ${isCash ? "cod" : ""}"
+                  data-action="toggle-payment"
+                  data-id="${order.id}"
+                >
+                  ${isCash ? "Đổi sang Bank" : "Khách trả tiền mặt"}
                 </button>
               `
               : ""
@@ -184,23 +181,26 @@ function createOrderCard(order, historyMode = false) {
       </div>
 
       ${
-        !historyMode && !isFinished
+        isPending && !isHistory
           ? `
             <div class="quick-actions">
-              <a class="quick-action call" href="${telLink}" aria-label="Gọi ${escapeHTML(order.customerName)}">
-                <svg><use href="#icon-phone"></use></svg>
+              <a class="quick-action call" href="${telUrl}">
+                <svg><use href="#i-phone"></use></svg>
                 <span>Gọi ngay</span>
               </a>
-              <a class="quick-action map" href="${mapUrl}" target="_blank" rel="noopener" aria-label="Mở bản đồ">
-                <svg><use href="#icon-map"></use></svg>
+
+              <a class="quick-action map" href="${mapUrl}" target="_blank" rel="noopener">
+                <svg><use href="#i-map"></use></svg>
                 <span>Bản đồ</span>
               </a>
+
               <button class="quick-action complete" data-action="complete" data-id="${order.id}">
-                <svg><use href="#icon-check"></use></svg>
+                <svg><use href="#i-check"></use></svg>
                 <span>Hoàn thành</span>
               </button>
+
               <button class="quick-action cancel" data-action="cancel" data-id="${order.id}">
-                <svg><use href="#icon-close"></use></svg>
+                <svg><use href="#i-close"></use></svg>
                 <span>Hủy đơn</span>
               </button>
             </div>
@@ -212,67 +212,55 @@ function createOrderCard(order, historyMode = false) {
 }
 
 function renderHome() {
-  const todayOrders = getTodayOrders();
-  const activeOrders = todayOrders.filter((order) => order.status === "pending");
+  const today = getLocalDate();
+  const pendingOrders = getOrders().filter(
+    (order) => order.date === today && order.status === "pending"
+  );
 
-  $("#todayLabel").textContent = formatDate(localDateString());
-  $("#todayCount").textContent = `${activeOrders.length} đơn`;
-
-  $("#orderList").innerHTML = activeOrders.map((order) => createOrderCard(order)).join("");
-  $("#emptyHome").classList.toggle("hidden", activeOrders.length > 0);
+  $("#todayLabel").textContent = formatDate(today);
+  $("#pendingCountBadge").textContent = `${pendingOrders.length} đơn`;
+  $("#orderList").innerHTML = pendingOrders.map((order) => buildOrderCard(order)).join("");
+  $("#homeEmpty").classList.toggle("hidden", pendingOrders.length > 0);
 }
 
 function renderStats() {
-  const todayOrders = getTodayOrders();
+  const today = getLocalDate();
+  const orders = getOrders().filter((order) => order.date === today);
 
-  const pendingCodOrders = todayOrders.filter(
-    (order) => order.status === "pending" && order.paymentMethod === "cod"
-  );
+  const completed = orders.filter((order) => order.status === "completed").length;
+  const pending = orders.filter((order) => order.status === "pending").length;
+  const cancelled = orders.filter((order) => order.status === "cancelled").length;
 
-  const successfulOrders = todayOrders.filter((order) => order.status === "completed");
-
-  const successfulBankOrders = successfulOrders.filter(
-    (order) => order.paymentMethod === "bank"
-  );
-
-  const codTotal = pendingCodOrders.reduce((total, order) => total + Number(order.amount || 0), 0);
-  const bankTotal = successfulBankOrders.reduce((total, order) => total + Number(order.amount || 0), 0);
-  const revenueTotal = successfulOrders.reduce((total, order) => total + Number(order.amount || 0), 0);
-
-  $("#statsDateLabel").textContent = formatDate(localDateString());
-  $("#codTotal").textContent = formatCurrency(codTotal);
-  $("#bankTotal").textContent = formatCurrency(bankTotal);
-  $("#revenueTotal").textContent = formatCurrency(revenueTotal);
-  $("#codCount").textContent = `${pendingCodOrders.length} đơn đang giao`;
-  $("#bankCount").textContent = `${successfulBankOrders.length} đơn thành công`;
-  $("#completedSummary").textContent = `${successfulOrders.length} đơn đã hoàn thành`;
+  $("#statsDateLabel").textContent = formatDate(today);
+  $("#completedCount").textContent = completed;
+  $("#pendingCount").textContent = pending;
+  $("#cancelledCount").textContent = cancelled;
 }
 
 function renderHistory() {
-  const selectedDate = $("#historyDate").value || localDateString();
-  const historyOrders = getOrders()
+  const selectedDate = $("#historyDate").value || getLocalDate();
+
+  const orders = getOrders()
     .filter((order) => order.date === selectedDate)
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-  $("#historyList").innerHTML = historyOrders
-    .map((order) => createOrderCard(order, true))
+  $("#historyList").innerHTML = orders
+    .map((order) => buildOrderCard(order, true))
     .join("");
 
-  $("#emptyHistory").classList.toggle("hidden", historyOrders.length > 0);
+  $("#historyEmpty").classList.toggle("hidden", orders.length > 0);
 }
 
 function renderAll() {
-  cleanupOldOrders();
+  cleanOldOrders();
   renderHome();
   renderStats();
   renderHistory();
 }
 
-function switchTab(tabName) {
-  currentTab = tabName;
-
-  $$(".tab-content").forEach((tab) => tab.classList.remove("active"));
-  $$(".nav-item").forEach((item) => item.classList.remove("active"));
+function changeTab(tabName) {
+  $$(".tab-content").forEach((element) => element.classList.remove("active"));
+  $$(".nav-item").forEach((element) => element.classList.remove("active"));
 
   $(`#${tabName}Tab`).classList.add("active");
   $(`.nav-item[data-tab="${tabName}"]`).classList.add("active");
@@ -281,170 +269,100 @@ function switchTab(tabName) {
   if (tabName === "stats") renderStats();
 }
 
-function showModal() {
-  resetOrderModal();
+function showOrderModal() {
+  resetOrderForm();
   $("#orderModal").classList.remove("hidden");
   document.body.style.overflow = "hidden";
 
-  setTimeout(() => $("#customerName").focus(), 180);
+  setTimeout(() => $("#customerName").focus(), 150);
 }
 
-function hideModal() {
+function closeOrderModal() {
   $("#orderModal").classList.add("hidden");
   document.body.style.overflow = "";
 }
 
-function resetOrderModal() {
-  currentStep = 1;
-  $("#manualOrderForm").reset();
-  $("#pasteOrderForm").reset();
-
+function resetOrderForm() {
+  $("#manualForm").reset();
+  $("#bulkForm").reset();
   setInputMode("manual");
-  updateWizard();
 }
 
 function setInputMode(mode) {
-  $$(".mode-btn").forEach((button) => {
+  $$(".input-mode").forEach((button) => {
     button.classList.toggle("active", button.dataset.mode === mode);
   });
 
-  $("#manualOrderForm").classList.toggle("hidden", mode !== "manual");
-  $("#pasteOrderForm").classList.toggle("hidden", mode !== "paste");
+  $("#manualForm").classList.toggle("hidden", mode !== "manual");
+  $("#bulkForm").classList.toggle("hidden", mode !== "bulk");
 }
 
-function updateWizard() {
-  $$(".form-step").forEach((step) => {
-    step.classList.toggle("active", Number(step.dataset.step) === currentStep);
-  });
-
-  $("#stepProgressText").textContent = `Bước ${currentStep}/5`;
-  $("#progressBar").style.width = `${currentStep * 20}%`;
-  $("#prevStepBtn").classList.toggle("hidden", currentStep === 1);
-  $("#nextStepBtn").classList.toggle("hidden", currentStep === 5);
-  $("#saveManualBtn").classList.toggle("hidden", currentStep !== 5);
-
-  const currentInput = $(`.form-step[data-step="${currentStep}"] input, .form-step[data-step="${currentStep}"] textarea`);
-
-  setTimeout(() => currentInput?.focus(), 100);
-}
-
-function validateCurrentStep() {
-  const step = $(`.form-step[data-step="${currentStep}"]`);
-  const requiredInput = step.querySelector("[required]");
-
-  if (!requiredInput || requiredInput.value.trim()) return true;
-
-  requiredInput.focus();
-  showToast("Vui lòng nhập thông tin trước khi tiếp tục.");
-  return false;
-}
-
-function openConfirm({ title, message, type = "danger", onAccept }) {
+function openConfirm({ title, message, type, onAccept }) {
   pendingConfirmAction = onAccept;
 
   $("#confirmTitle").textContent = title;
   $("#confirmMessage").textContent = message;
-  $("#confirmAcceptBtn").textContent = type === "success" ? "Hoàn thành" : "Xác nhận";
-  $("#confirmAcceptBtn").className = type === "success" ? "primary-btn" : "danger-btn";
+  $("#confirmAccept").textContent = type === "complete" ? "Hoàn thành" : "Xác nhận";
+  $("#confirmAccept").className = type === "complete" ? "primary-button" : "danger-button";
 
   $("#confirmIcon").innerHTML =
-    type === "success"
-      ? '<svg><use href="#icon-check"></use></svg>'
-      : '<svg><use href="#icon-close"></use></svg>';
+    type === "complete"
+      ? '<svg><use href="#i-check"></use></svg>'
+      : '<svg><use href="#i-close"></use></svg>';
 
   $("#confirmModal").classList.remove("hidden");
 }
 
 function closeConfirm() {
-  $("#confirmModal").classList.add("hidden");
   pendingConfirmAction = null;
+  $("#confirmModal").classList.add("hidden");
 }
 
 function showToast(message) {
   const toast = $("#toast");
+
   toast.textContent = message;
   toast.classList.remove("hidden");
 
-  clearTimeout(showToast.timeout);
-  showToast.timeout = setTimeout(() => {
+  clearTimeout(showToast.timer);
+
+  showToast.timer = setTimeout(() => {
     toast.classList.add("hidden");
   }, 2600);
 }
 
-function normalizeKey(key) {
-  return key
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, "");
-}
+function handleCardAction(event) {
+  const actionButton = event.target.closest("[data-action]");
+  if (!actionButton) return;
 
-function parseRawOrder(text) {
-  const result = {
-    customerName: "",
-    phone: "",
-    detail: "",
-    address: "",
-    note: "",
-    amount: 0
-  };
-
-  const aliases = {
-    customerName: ["ten", "khachhang", "tenkhach", "nguoinhan", "name"],
-    phone: ["sdt", "sodienthoai", "dienthoai", "phone", "tel"],
-    detail: ["don", "chitietdon", "sanpham", "mon", "hang", "order"],
-    address: ["diachi", "dc", "address"],
-    note: ["ghichu", "note"],
-    amount: ["tien", "sotien", "thanhtien", "gia", "tong"]
-  };
-
-  const fields = text
-    .replace(/\r/g, "")
-    .split(/,|\n/)
-    .map((part) => part.trim())
-    .filter(Boolean);
-
-  fields.forEach((field) => {
-    const colonIndex = field.indexOf(":");
-    if (colonIndex === -1) return;
-
-    const rawKey = normalizeKey(field.slice(0, colonIndex));
-    const value = field.slice(colonIndex + 1).trim();
-
-    Object.entries(aliases).forEach(([property, names]) => {
-      if (names.includes(rawKey) && value) {
-        result[property] = property === "amount" ? parseAmount(value) : value;
-      }
-    });
-  });
-
-  return result;
-}
-
-function handleOrderAction(event) {
-  const button = event.target.closest("[data-action]");
-  if (!button) return;
-
-  const { action, id } = button.dataset;
+  const { action, id } = actionButton.dataset;
   const order = getOrders().find((item) => item.id === id);
+
   if (!order) return;
 
   if (action === "toggle-payment") {
-    const nextPayment = order.paymentMethod === "bank" ? "cod" : "bank";
-    updateOrder(id, { paymentMethod: nextPayment });
-    showToast(nextPayment === "cod" ? "Đã chuyển sang tiền mặt COD." : "Đã chuyển sang chuyển khoản.");
+    const paymentMethod = order.paymentMethod === "cod" ? "bank" : "cod";
+
+    updateOrder(id, { paymentMethod });
+
+    showToast(
+      paymentMethod === "cod"
+        ? "Đã chọn khách trả tiền mặt."
+        : "Đã chuyển sang thanh toán Bank."
+    );
   }
 
   if (action === "complete") {
     openConfirm({
       title: "Hoàn thành đơn?",
       message: `Xác nhận đã giao thành công cho ${order.customerName}.`,
-      type: "success",
+      type: "complete",
       onAccept: () => {
         updateOrder(id, {
           status: "completed",
           completedAt: new Date().toISOString()
         });
+
         showToast("Đơn hàng đã hoàn thành.");
       }
     });
@@ -454,7 +372,7 @@ function handleOrderAction(event) {
     openConfirm({
       title: "Hủy đơn hàng?",
       message: `Đơn của ${order.customerName} sẽ được chuyển sang trạng thái đã hủy.`,
-      type: "danger",
+      type: "cancel",
       onAccept: () => {
         updateOrder(id, { status: "cancelled" });
         showToast("Đơn hàng đã được hủy.");
@@ -463,96 +381,167 @@ function handleOrderAction(event) {
   }
 }
 
+function addManualOrder(event) {
+  event.preventDefault();
+
+  const customerName = $("#customerName").value.trim();
+  const phone = $("#customerPhone").value.trim();
+  const detail = $("#orderDetail").value.trim();
+  const address = $("#customerAddress").value.trim();
+  const note = $("#orderNote").value.trim();
+
+  if (!customerName || !phone || !detail || !address) {
+    showToast("Vui lòng nhập đầy đủ thông tin bắt buộc.");
+    return;
+  }
+
+  saveNewOrders([
+    createOrder({
+      customerName,
+      phone,
+      detail,
+      address,
+      note,
+      paymentMethod: $("#cashPayment").checked ? "cod" : "bank"
+    })
+  ]);
+
+  closeOrderModal();
+  showToast("Đã thêm đơn hàng.");
+}
+
+function addBulkOrders(event) {
+  event.preventDefault();
+
+  const rawText = $("#bulkOrderText").value.trim();
+
+  if (!rawText) {
+    showToast("Vui lòng nhập danh sách đơn hàng.");
+    return;
+  }
+
+  const lines = rawText.split("\n").map((line) => line.trim()).filter(Boolean);
+  const newOrders = [];
+  let invalidLines = 0;
+
+  lines.forEach((line) => {
+    const parts = line.split("-").map((part) => part.trim());
+
+    if (parts.length < 4) {
+      invalidLines += 1;
+      return;
+    }
+
+    const [customerName, detail, phone, address, ...noteParts] = parts;
+    const note = noteParts.join(" - ");
+
+    if (!customerName || !detail || !phone || !address) {
+      invalidLines += 1;
+      return;
+    }
+
+    newOrders.push(
+      createOrder({
+        customerName,
+        detail,
+        phone,
+        address,
+        note,
+        paymentMethod: "bank"
+      })
+    );
+  });
+
+  if (!newOrders.length) {
+    showToast("Không có dòng nào đúng định dạng.");
+    return;
+  }
+
+  saveNewOrders(newOrders);
+  closeOrderModal();
+
+  const message =
+    invalidLines > 0
+      ? `Đã thêm ${newOrders.length} đơn. Bỏ qua ${invalidLines} dòng lỗi.`
+      : `Đã thêm thành công ${newOrders.length} đơn hàng.`;
+
+  showToast(message);
+}
+
+function setupEnterNavigation() {
+  const fields = [
+    $("#customerName"),
+    $("#customerPhone"),
+    $("#orderDetail"),
+    $("#customerAddress"),
+    $("#orderNote")
+  ];
+
+  fields.forEach((field, index) => {
+    field.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.shiftKey) return;
+
+      event.preventDefault();
+
+      const nextField = fields[index + 1];
+
+      if (nextField) {
+        nextField.focus();
+      } else {
+        $("#manualForm").requestSubmit();
+      }
+    });
+  });
+}
+
 function initEvents() {
   $$(".nav-item").forEach((button) => {
-    button.addEventListener("click", () => switchTab(button.dataset.tab));
+    button.addEventListener("click", () => changeTab(button.dataset.tab));
   });
 
-  ["#addOrderHeaderBtn", "#emptyAddOrderBtn", "#fabAddOrder"].forEach((selector) => {
-    $(selector).addEventListener("click", showModal);
+  ["#headerAddButton", "#emptyAddButton", "#floatingAddButton"].forEach((selector) => {
+    $(selector).addEventListener("click", showOrderModal);
   });
 
-  $("#closeModalBtn").addEventListener("click", hideModal);
+  $("#closeOrderModal").addEventListener("click", closeOrderModal);
 
   $("#orderModal").addEventListener("click", (event) => {
-    if (event.target === $("#orderModal")) hideModal();
+    if (event.target === $("#orderModal")) closeOrderModal();
   });
 
-  $$(".mode-btn").forEach((button) => {
+  $$(".input-mode").forEach((button) => {
     button.addEventListener("click", () => setInputMode(button.dataset.mode));
   });
 
-  $("#nextStepBtn").addEventListener("click", () => {
-    if (!validateCurrentStep()) return;
-    currentStep = Math.min(5, currentStep + 1);
-    updateWizard();
-  });
-
-  $("#prevStepBtn").addEventListener("click", () => {
-    currentStep = Math.max(1, currentStep - 1);
-    updateWizard();
-  });
-
-  $("#manualOrderForm").addEventListener("submit", (event) => {
-    event.preventDefault();
-
-    if (!validateCurrentStep()) return;
-
-    addOrder({
-      customerName: $("#customerName").value,
-      phone: $("#customerPhone").value,
-      detail: $("#orderDetail").value,
-      address: $("#customerAddress").value,
-      note: $("#orderNote").value,
-      amount: $("#orderAmount").value
-    });
-
-    hideModal();
-  });
-
-  $("#pasteOrderForm").addEventListener("submit", (event) => {
-    event.preventDefault();
-
-    const rawText = $("#rawOrderText").value.trim();
-
-    if (!rawText) {
-      showToast("Vui lòng dán nội dung đơn hàng.");
-      return;
-    }
-
-    const parsedOrder = parseRawOrder(rawText);
-
-    if (!parsedOrder.customerName || !parsedOrder.phone || !parsedOrder.detail || !parsedOrder.address) {
-      showToast("Không đủ dữ liệu. Cần có Tên, SĐT, Đơn và Địa chỉ.");
-      return;
-    }
-
-    addOrder(parsedOrder);
-    hideModal();
-  });
+  $("#manualForm").addEventListener("submit", addManualOrder);
+  $("#bulkForm").addEventListener("submit", addBulkOrders);
 
   $("#historyDate").addEventListener("change", renderHistory);
 
-  $("#orderList").addEventListener("click", handleOrderAction);
-  $("#historyList").addEventListener("click", handleOrderAction);
+  $("#orderList").addEventListener("click", handleCardAction);
+  $("#historyList").addEventListener("click", handleCardAction);
 
-  $("#confirmCancelBtn").addEventListener("click", closeConfirm);
+  $("#confirmCancel").addEventListener("click", closeConfirm);
 
-  $("#confirmAcceptBtn").addEventListener("click", () => {
+  $("#confirmAccept").addEventListener("click", () => {
     if (typeof pendingConfirmAction === "function") {
       pendingConfirmAction();
     }
+
     closeConfirm();
   });
 
   $("#confirmModal").addEventListener("click", (event) => {
     if (event.target === $("#confirmModal")) closeConfirm();
   });
+
+  setupEnterNavigation();
 }
 
 function initializeApp() {
-  cleanupOldOrders();
-  $("#historyDate").value = localDateString();
+  cleanOldOrders();
+  $("#historyDate").value = getLocalDate();
+
   initEvents();
   renderAll();
 }
