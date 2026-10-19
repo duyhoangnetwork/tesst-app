@@ -14,6 +14,15 @@
 </head>
 
 <body>
+  <div id="splashScreen" class="splash-screen" aria-label="Đang tải Tom Shipper">
+    <div class="splash-content">
+      <div class="splash-mark">T</div>
+      <h1>Tom Shipper</h1>
+      <p>by Duy Hoang Network</p>
+      <div class="splash-loader" aria-hidden="true"><span></span></div>
+    </div>
+  </div>
+
   <svg class="hidden" xmlns="http://www.w3.org/2000/svg">
     <symbol id="i-home" viewBox="0 0 24 24">
       <path d="m3 10 9-7 9 7v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
@@ -129,6 +138,10 @@
         </article>
       </div>
 
+      <div class="stats-management">
+        <button id="deleteTodayOrders" class="danger-button" type="button">Xóa tất cả đơn hôm nay</button>
+        <button id="resetAllOrders" class="secondary-button" type="button">Làm lại / Đặt lại (Reset)</button>
+      </div>
       <p class="stats-note">
         Thống kê được tính theo đơn hàng được tạo trong ngày hôm nay.
       </p>
@@ -159,9 +172,6 @@
     </section>
   </main>
 
-  <button id="floatingAddButton" class="floating-add" aria-label="Thêm đơn hàng">
-    <svg><use href="#i-plus"></use></svg>
-  </button>
 
   <nav class="bottom-nav">
     <button class="nav-item active" data-tab="home">
@@ -243,14 +253,15 @@
           <textarea
             id="bulkOrderText"
             rows="10"
-            placeholder="Nguyễn Văn An-2 ly trà đào-0901234567-12 Nguyễn Huệ Q1-Gọi trước&#10;Trần Thị Mai-1 phần cơm-0912345678-45 Lê Lợi Q3-Giao ở cổng"
+            placeholder="Nguyễn Văn An - 2 ly trà đào - 0901234567 - 12 Nguyễn Huệ Q1 - Gọi trước&#10;Vy Cherry - 1 bò, 1 xá xíu - - Cổng chính - Giao gấp&#10;Trần Thị Mai - 1 phần cơm"
             required
           ></textarea>
         </label>
 
         <p class="bulk-guide">
           Mỗi dòng là một đơn theo mẫu:<br />
-          <b>Tên - Đơn hàng - Số điện thoại - Địa chỉ - Ghi chú</b>
+          <b>Tên - Đơn hàng - Số điện thoại - Địa chỉ - Ghi chú</b><br />
+          Chỉ cần nhập Tên và Đơn hàng; các trường còn lại có thể để trống.
         </p>
 
         <button type="submit" class="primary-button full-button">
