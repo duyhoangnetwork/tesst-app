@@ -425,17 +425,22 @@ function addBulkOrders(event) {
   let invalidLines = 0;
 
   lines.forEach((line) => {
-    const parts = line.split("-").map((part) => part.trim());
+    // Chỉ tách theo dấu gạch ngang có khoảng trắng hai bên để tránh cắt nhầm
+    // dữ liệu như mã đơn hoặc nội dung có dấu gạch ngang liền nhau.
+    const parts = line.split(/\s*-\s*/).map((part) => part.trim());
 
-    if (parts.length < 4) {
+    if (parts.length < 2) {
       invalidLines += 1;
       return;
     }
 
-    const [customerName, detail, phone, address, ...noteParts] = parts;
-    const note = noteParts.join(" - ");
+    const customerName = parts[0] || "";
+    const detail = parts[1] || "";
+    const phone = parts[2] || "";
+    const address = parts[3] || "";
+    const note = parts.slice(4).join(" - ").trim();
 
-    if (!customerName || !detail || !phone || !address) {
+    if (!customerName || !detail) {
       invalidLines += 1;
       return;
     }
@@ -499,7 +504,7 @@ function initEvents() {
     button.addEventListener("click", () => changeTab(button.dataset.tab));
   });
 
-  ["#headerAddButton", "#emptyAddButton", "#floatingAddButton"].forEach((selector) => {
+  ["#headerAddButton", "#emptyAddButton"].forEach((selector) => {
     $(selector).addEventListener("click", showOrderModal);
   });
 
@@ -535,6 +540,43 @@ function initEvents() {
     if (event.target === $("#confirmModal")) closeConfirm();
   });
 
+  $("#deleteTodayOrders").addEventListener("click", () => {
+    const today = getLocalDate();
+    const count = getOrders().filter((order) => order.date === today).length;
+    if (!count) {
+      showToast("Hôm nay chưa có đơn hàng để xóa.");
+      return;
+    }
+    openConfirm({
+      title: "Xóa tất cả đơn hôm nay?",
+      message: `Thao tác này sẽ xóa ${count} đơn được tạo hôm nay. Dữ liệu ngày khác vẫn được giữ lại. Bạn có chắc chắn không?`,
+      type: "cancel",
+      onAccept: () => {
+        saveOrders(getOrders().filter((order) => order.date !== today));
+        renderAll();
+        showToast("Đã xóa toàn bộ đơn hàng hôm nay.");
+      }
+    });
+  });
+
+  $("#resetAllOrders").addEventListener("click", () => {
+    const count = getOrders().length;
+    if (!count) {
+      showToast("Dữ liệu đã trống, không cần đặt lại.");
+      return;
+    }
+    openConfirm({
+      title: "Đặt lại toàn bộ dữ liệu?",
+      message: `Thao tác này sẽ xóa toàn bộ ${count} đơn hàng đã lưu trên thiết bị, bao gồm cả lịch sử các ngày trước. Không thể hoàn tác. Bạn có muốn bắt đầu lại từ đầu?`,
+      type: "cancel",
+      onAccept: () => {
+        saveOrders([]);
+        renderAll();
+        showToast("Đã đặt lại dữ liệu. Sẵn sàng cho ca làm mới.");
+      }
+    });
+  });
+
   setupEnterNavigation();
 }
 
@@ -544,6 +586,12 @@ function initializeApp() {
 
   initEvents();
   renderAll();
+
+  const splash = $("#splashScreen");
+  window.setTimeout(() => {
+    splash?.classList.add("splash-hidden");
+    window.setTimeout(() => splash?.remove(), 450);
+  }, 1700);
 }
 
 document.addEventListener("DOMContentLoaded", initializeApp);
