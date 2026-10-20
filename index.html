@@ -281,9 +281,18 @@
 
       <div class="confirm-actions">
         <button id="confirmCancel" class="secondary-button">Không</button>
+        <button id="confirmPhotoComplete" class="photo-complete-button hidden" type="button">📸 Chụp ảnh &amp; hoàn thành</button>
         <button id="confirmAccept" class="danger-button">Xác nhận</button>
       </div>
     </section>
+  </div>
+
+  <input id="proofPhotoInput" class="hidden" type="file" accept="image/*" capture="environment" />
+
+  <div id="proofLightbox" class="proof-lightbox hidden" role="dialog" aria-modal="true" aria-label="Ảnh xác nhận giao hàng">
+    <button id="closeProofLightbox" class="proof-lightbox-close" type="button" aria-label="Đóng ảnh">×</button>
+    <img id="proofLightboxImage" alt="Ảnh xác nhận giao hàng" />
+    <p id="proofLightboxCaption"></p>
   </div>
 
   <div id="toast" class="toast hidden"></div>
