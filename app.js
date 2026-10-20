@@ -2,6 +2,7 @@ const STORAGE_KEY = "tom_shipper_orders_v2";
 const MAX_STORAGE_DAYS = 180;
 
 let pendingConfirmAction = null;
+let pendingPhotoConfirmAction = null;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -88,7 +89,8 @@ function createOrder(data) {
     status: "pending",
     date: getLocalDate(),
     createdAt: new Date().toISOString(),
-    completedAt: null
+    completedAt: null,
+    proofImage: null
   };
 }
 
@@ -154,6 +156,17 @@ function buildOrderCard(order, isHistory = false) {
                 <span>📝</span>
                 <span>${escapeHTML(order.note)}</span>
               </div>
+            `
+            : ""
+        }
+
+        ${
+          order.proofImage
+            ? `
+              <button class="proof-thumbnail-button" type="button" data-action="view-proof" data-id="${order.id}" aria-label="Xem ảnh xác nhận giao hàng">
+                <img class="proof-thumbnail" src="${order.proofImage}" alt="Ảnh xác nhận giao hàng" />
+                <span>Ảnh xác nhận giao hàng · Nhấn để phóng to</span>
+              </button>
             `
             : ""
         }
@@ -265,6 +278,9 @@ function changeTab(tabName) {
   $(`#${tabName}Tab`).classList.add("active");
   $(`.nav-item[data-tab="${tabName}"]`).classList.add("active");
 
+  // Nút thêm đơn chỉ xuất hiện ở tab Trang chủ.
+  $("#headerAddButton").classList.toggle("hidden", tabName !== "home");
+
   if (tabName === "history") renderHistory();
   if (tabName === "stats") renderStats();
 }
@@ -297,8 +313,11 @@ function setInputMode(mode) {
   $("#bulkForm").classList.toggle("hidden", mode !== "bulk");
 }
 
-function openConfirm({ title, message, type, onAccept }) {
+function openConfirm({ title, message, type, onAccept, onPhoto }) {
   pendingConfirmAction = onAccept;
+  pendingPhotoConfirmAction = onPhoto || null;
+  const photoButton = $("#confirmPhotoComplete");
+  photoButton.classList.toggle("hidden", type !== "complete" || typeof onPhoto !== "function");
 
   $("#confirmTitle").textContent = title;
   $("#confirmMessage").textContent = message;
@@ -315,6 +334,7 @@ function openConfirm({ title, message, type, onAccept }) {
 
 function closeConfirm() {
   pendingConfirmAction = null;
+  pendingPhotoConfirmAction = null;
   $("#confirmModal").classList.add("hidden");
 }
 
@@ -364,8 +384,19 @@ function handleCardAction(event) {
         });
 
         showToast("Đơn hàng đã hoàn thành.");
+      },
+      onPhoto: () => {
+        const input = $("#proofPhotoInput");
+        input.dataset.orderId = id;
+        input.dataset.completeAfterPhoto = "true";
+        input.value = "";
+        input.click();
       }
     });
+  }
+
+  if (action === "view-proof") {
+    openProofLightbox(order);
   }
 
   if (action === "cancel") {
@@ -499,6 +530,98 @@ function setupEnterNavigation() {
   });
 }
 
+
+function openProofLightbox(order) {
+  if (!order || !order.proofImage) {
+    showToast("Đơn hàng chưa có ảnh xác nhận.");
+    return;
+  }
+
+  $("#proofLightboxImage").src = order.proofImage;
+  $("#proofLightboxCaption").textContent = `Ảnh xác nhận · ${order.customerName}`;
+  $("#proofLightbox").classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+}
+
+function closeProofLightbox() {
+  $("#proofLightbox").classList.add("hidden");
+  $("#proofLightboxImage").removeAttribute("src");
+  document.body.style.overflow = "";
+}
+
+function compressImageToDataURL(file, maxDimension = 1440, quality = 0.78) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    const objectUrl = URL.createObjectURL(file);
+
+    image.onload = () => {
+      const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const context = canvas.getContext("2d");
+      if (!context) {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error("Không thể xử lý ảnh trên thiết bị này."));
+        return;
+      }
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(objectUrl);
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("Không đọc được ảnh đã chọn."));
+    };
+
+    image.src = objectUrl;
+  });
+}
+
+async function handleProofPhotoSelected(event) {
+  const input = event.currentTarget;
+  const file = input.files && input.files[0];
+  const orderId = input.dataset.orderId;
+  if (!file || !orderId) return;
+  if (!file.type.startsWith("image/")) {
+    showToast("Vui lòng chọn một tệp hình ảnh.");
+    return;
+  }
+
+  try {
+    const imageData = await compressImageToDataURL(file);
+    const orders = getOrders();
+    const index = orders.findIndex((order) => order.id === orderId);
+    if (index < 0) {
+      showToast("Không tìm thấy đơn hàng cần lưu ảnh.");
+      return;
+    }
+
+    orders[index].proofImage = imageData;
+    orders[index].proofImageAt = new Date().toISOString();
+    const completeAfterPhoto = input.dataset.completeAfterPhoto === "true";
+    if (completeAfterPhoto) {
+      orders[index].status = "completed";
+      orders[index].completedAt = new Date().toISOString();
+    }
+    try {
+      saveOrders(orders);
+    } catch (storageError) {
+      showToast("Không đủ dung lượng lưu ảnh. Hãy chọn ảnh nhỏ hơn.");
+      return;
+    }
+    renderAll();
+    showToast(completeAfterPhoto ? "Đã lưu ảnh và hoàn thành đơn hàng." : "Đã lưu ảnh xác nhận vào đơn hàng.");
+  } catch (error) {
+    showToast(error.message || "Không thể lưu ảnh xác nhận.");
+  } finally {
+    input.value = "";
+    delete input.dataset.orderId;
+    delete input.dataset.completeAfterPhoto;
+  }
+}
+
 function initEvents() {
   $$(".nav-item").forEach((button) => {
     button.addEventListener("click", () => changeTab(button.dataset.tab));
@@ -506,6 +629,12 @@ function initEvents() {
 
   ["#headerAddButton", "#emptyAddButton"].forEach((selector) => {
     $(selector).addEventListener("click", showOrderModal);
+  });
+
+  $("#proofPhotoInput").addEventListener("change", handleProofPhotoSelected);
+  $("#closeProofLightbox").addEventListener("click", closeProofLightbox);
+  $("#proofLightbox").addEventListener("click", (event) => {
+    if (event.target === $("#proofLightbox")) closeProofLightbox();
   });
 
   $("#closeOrderModal").addEventListener("click", closeOrderModal);
@@ -527,6 +656,14 @@ function initEvents() {
   $("#historyList").addEventListener("click", handleCardAction);
 
   $("#confirmCancel").addEventListener("click", closeConfirm);
+
+  $("#confirmPhotoComplete").addEventListener("click", () => {
+    if (typeof pendingPhotoConfirmAction === "function") {
+      const action = pendingPhotoConfirmAction;
+      closeConfirm();
+      action();
+    }
+  });
 
   $("#confirmAccept").addEventListener("click", () => {
     if (typeof pendingConfirmAction === "function") {
