@@ -856,3 +856,197 @@ svg {
   .splash-content, .splash-loader span { animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
   .splash-screen { transition-duration: .01ms; }
 }
+
+/* Ảnh xác nhận giao hàng */
+.proof-thumbnail-button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 8px;
+  border: 1px solid #bae6fd;
+  border-radius: 13px;
+  color: var(--ocean-800);
+  background: #f0f9ff;
+  text-align: left;
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 750;
+}
+
+.proof-thumbnail {
+  display: block;
+  width: 64px;
+  height: 64px;
+  flex: 0 0 64px;
+  object-fit: cover;
+  border-radius: 9px;
+  background: #e2e8f0;
+}
+
+.quick-actions {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+/* Các nút thao tác: vùng chạm đủ lớn, màu phân biệt theo chức năng. */
+.quick-actions {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  overflow: hidden;
+  border-radius: 0 0 18px 18px;
+}
+.quick-action {
+  min-width: 0;
+  min-height: 58px;
+  padding: 8px 4px;
+  gap: 5px;
+  line-height: 1.2;
+  text-align: center;
+  overflow-wrap: anywhere;
+  transition: background 160ms ease, transform 160ms ease;
+}
+.quick-action svg { flex: 0 0 20px; }
+.quick-action.call { background: #f0f9ff; }
+.quick-action.map { background: #f5f3ff; }
+.quick-action.complete { background: #f0fdf4; }
+.quick-action.cancel { background: #fff1f2; }
+.quick-action:active { transform: scale(.97); }
+.quick-action:focus-visible,
+.payment-toggle:focus-visible,
+.primary-button:focus-visible,
+.secondary-button:focus-visible,
+.danger-button:focus-visible,
+.photo-complete-button:focus-visible {
+  outline: 3px solid #38bdf8;
+  outline-offset: 2px;
+}
+@media (max-width: 420px) {
+  .quick-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .quick-action {
+    min-height: 48px;
+    flex-direction: row;
+    justify-content: center;
+    gap: 7px;
+    padding: 10px 8px;
+    font-size: .76rem;
+  }
+  .quick-action:nth-child(odd) { border-right: 1px solid var(--slate-200); }
+  .quick-action:nth-child(-n+2) { border-bottom: 1px solid var(--slate-200); }
+}
+
+.history-proof-action {
+  display: flex;
+  justify-content: flex-end;
+  border-top: 1px solid var(--slate-200);
+}
+
+.history-proof-action .quick-action {
+  min-height: 48px;
+  width: 50%;
+  flex-direction: row;
+  border-right: 0;
+  gap: 7px;
+}
+
+.proof-lightbox {
+  position: fixed;
+  z-index: 220;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 54px 14px 24px;
+  background: rgba(2, 6, 23, 0.96);
+}
+
+.proof-lightbox img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100dvh - 130px);
+  object-fit: contain;
+  border-radius: 10px;
+}
+
+.proof-lightbox p {
+  margin: 0;
+  color: #f8fafc;
+  text-align: center;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.proof-lightbox-close {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  right: 16px;
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 50%;
+  color: white;
+  background: rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+  font-size: 30px;
+  line-height: 1;
+}
+
+@media (max-width: 380px) {
+  .quick-action {
+    font-size: 0.59rem;
+  }
+  .quick-action svg {
+    width: 18px;
+    height: 18px;
+  }
+}
+
+/* Chụp ảnh chỉ xuất hiện bên trong hộp thoại xác nhận hoàn thành đơn. */
+.photo-complete-button {
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid #7dd3fc;
+  border-radius: 12px;
+  color: #075985;
+  background: #e0f2fe;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 800;
+  cursor: pointer;
+  grid-column: 1 / -1;
+}
+
+/* Hộp xác nhận: hai nút quyết định nằm cạnh nhau, nút chụp ảnh nằm riêng bên dưới. */
+.confirm-actions {
+  align-items: stretch;
+}
+.confirm-actions > button {
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  padding: 10px 12px;
+  line-height: 1.25;
+}
+.confirm-actions:has(.photo-complete-button:not(.hidden)) {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.confirm-actions:has(.photo-complete-button:not(.hidden)) #confirmCancel { grid-column: 1; grid-row: 1; }
+.confirm-actions:has(.photo-complete-button:not(.hidden)) #confirmAccept { grid-column: 2; grid-row: 1; }
+.confirm-actions:has(.photo-complete-button:not(.hidden)) #confirmPhotoComplete {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+.photo-complete-button {
+  color: #075985;
+  background: linear-gradient(135deg, #e0f2fe, #bae6fd);
+  border: 1px solid #7dd3fc;
+  box-shadow: 0 3px 10px rgba(2, 132, 199, .12);
+}
+@media (max-width: 360px) {
+  .confirm-actions { gap: 7px; }
+  .confirm-actions > button { padding-inline: 8px; font-size: .8rem; }
+}
