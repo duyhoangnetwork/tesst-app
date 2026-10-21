@@ -1,5 +1,5 @@
-const STORAGE_KEY = "tom_shipper_orders_v2";
-const MAX_STORAGE_DAYS = 180;
+const STORAGE_KEY = "tom_shipper_orders_v5.00.00";
+const MAX_STORAGE_DAYS = 30;
 
 let pendingConfirmAction = null;
 let pendingPhotoConfirmAction = null;
