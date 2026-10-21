@@ -1050,3 +1050,65 @@ svg {
   .confirm-actions { gap: 7px; }
   .confirm-actions > button { padding-inline: 8px; font-size: .8rem; }
 }
+
+
+/* Nút sửa đơn và xóa lịch sử được tách khỏi 4 thao tác giao hàng chính. */
+.order-edit-row,
+.history-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+.edit-order-button,
+.delete-history-order {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 9px 13px;
+  border-radius: 11px;
+  font-size: .8rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 150ms ease, background 150ms ease;
+}
+.edit-order-button {
+  color: var(--ocean-800);
+  background: var(--ocean-50);
+  border: 1px solid var(--ocean-300);
+}
+.delete-history-order {
+  color: #b91c1c;
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+}
+.edit-order-button:active,
+.delete-history-order:active,
+.proof-download-button:active { transform: scale(.98); }
+
+.proof-download-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 46px;
+  width: min(100%, 320px);
+  padding: 11px 18px;
+  color: white;
+  background: linear-gradient(135deg, #0284c7, #0369a1);
+  border: 1px solid rgba(125, 211, 252, .7);
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(2, 132, 199, .25);
+  font-size: .9rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+.proof-download-button svg { width: 20px; height: 20px; flex: none; }
+.proof-lightbox { overflow-y: auto; }
+.proof-lightbox img { flex: 0 1 auto; }
+@media (max-width: 420px) {
+  .order-edit-row, .history-card-actions { justify-content: stretch; }
+  .edit-order-button, .delete-history-order { width: 100%; }
+  .proof-download-button { width: 100%; max-width: 360px; }
+}
