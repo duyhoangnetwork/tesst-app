@@ -3,6 +3,8 @@ const MAX_STORAGE_DAYS = 180;
 
 let pendingConfirmAction = null;
 let pendingPhotoConfirmAction = null;
+let editingOrderId = null;
+let currentProofOrder = null;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -191,6 +193,16 @@ function buildOrderCard(order, isHistory = false) {
               : ""
           }
         </div>
+        ${isPending ? `
+          <div class="order-edit-row">
+            <button class="edit-order-button" type="button" data-action="edit-order" data-id="${order.id}">✏️ Sửa đơn</button>
+          </div>
+        ` : ""}
+        ${isHistory ? `
+          <div class="history-card-actions">
+            <button class="delete-history-order" type="button" data-action="delete-order" data-id="${order.id}" aria-label="Xóa đơn hàng">🗑️ Xóa đơn này</button>
+          </div>
+        ` : ""}
       </div>
 
       ${
@@ -286,16 +298,47 @@ function changeTab(tabName) {
 }
 
 function showOrderModal() {
+  editingOrderId = null;
   resetOrderForm();
+  $("#orderModalTitle").textContent = "Thêm đơn hàng";
+  $("#orderModalSubtitle").textContent = "Chọn cách nhập phù hợp";
+  $("#customerPhone").required = true;
+  $("#customerAddress").required = true;
+  $(".input-mode-tabs").classList.remove("hidden");
+  $("#bulkForm").classList.add("hidden");
+  $("#manualForm button[type=submit]").innerHTML = '<svg><use href="#i-plus"></use></svg> Lưu đơn hàng';
   $("#orderModal").classList.remove("hidden");
   document.body.style.overflow = "hidden";
+  setTimeout(() => $("#customerName").focus(), 150);
+}
 
+function openEditOrder(order) {
+  if (!order || order.status !== "pending") return;
+  editingOrderId = order.id;
+  $("#manualForm").reset();
+  $("#customerName").value = order.customerName || "";
+  $("#customerPhone").value = order.phone || "";
+  $("#orderDetail").value = order.detail || "";
+  $("#customerAddress").value = order.address || "";
+  $("#orderNote").value = order.note || "";
+  $("#cashPayment").checked = order.paymentMethod === "cod";
+  $("#customerPhone").required = false;
+  $("#customerAddress").required = false;
+  $(".input-mode-tabs").classList.add("hidden");
+  $("#bulkForm").classList.add("hidden");
+  $("#manualForm").classList.remove("hidden");
+  $("#orderModalTitle").textContent = "Sửa đơn hàng";
+  $("#orderModalSubtitle").textContent = `Cập nhật thông tin đơn của ${order.customerName}`;
+  $("#manualForm button[type=submit]").innerHTML = 'Lưu thay đổi';
+  $("#orderModal").classList.remove("hidden");
+  document.body.style.overflow = "hidden";
   setTimeout(() => $("#customerName").focus(), 150);
 }
 
 function closeOrderModal() {
   $("#orderModal").classList.add("hidden");
   document.body.style.overflow = "";
+  editingOrderId = null;
 }
 
 function resetOrderForm() {
@@ -360,6 +403,25 @@ function handleCardAction(event) {
 
   if (!order) return;
 
+  if (action === "edit-order") {
+    openEditOrder(order);
+    return;
+  }
+
+  if (action === "delete-order") {
+    openConfirm({
+      title: "Xóa đơn trong lịch sử?",
+      message: `Bạn có chắc muốn xóa đơn của ${order.customerName} ngày ${formatDate(order.date)}? Thao tác này không thể hoàn tác.`,
+      type: "cancel",
+      onAccept: () => {
+        saveOrders(getOrders().filter((item) => item.id !== id));
+        renderAll();
+        showToast("Đã xóa đơn hàng khỏi lịch sử.");
+      }
+    });
+    return;
+  }
+
   if (action === "toggle-payment") {
     const paymentMethod = order.paymentMethod === "cod" ? "bank" : "cod";
 
@@ -420,6 +482,26 @@ function addManualOrder(event) {
   const detail = $("#orderDetail").value.trim();
   const address = $("#customerAddress").value.trim();
   const note = $("#orderNote").value.trim();
+
+  if (editingOrderId) {
+    if (!customerName || !detail) {
+      showToast("Vui lòng nhập ít nhất tên khách hàng và chi tiết đơn hàng.");
+      return;
+    }
+    const current = getOrders().find((order) => order.id === editingOrderId);
+    if (!current || current.status !== "pending") {
+      showToast("Chỉ có thể sửa đơn đang chờ giao.");
+      closeOrderModal();
+      return;
+    }
+    updateOrder(editingOrderId, {
+      customerName, phone: cleanPhone(phone), detail, address, note,
+      paymentMethod: $("#cashPayment").checked ? "cod" : "bank"
+    });
+    closeOrderModal();
+    showToast("Đã cập nhật đơn hàng.");
+    return;
+  }
 
   if (!customerName || !phone || !detail || !address) {
     showToast("Vui lòng nhập đầy đủ thông tin bắt buộc.");
@@ -537,8 +619,10 @@ function openProofLightbox(order) {
     return;
   }
 
+  currentProofOrder = order;
   $("#proofLightboxImage").src = order.proofImage;
-  $("#proofLightboxCaption").textContent = `Ảnh xác nhận · ${order.customerName}`;
+  const proofDate = order.completedAt ? formatDate(getLocalDate(new Date(order.completedAt))) : (order.proofImageAt ? formatDate(getLocalDate(new Date(order.proofImageAt))) : formatDate(order.date));
+  $("#proofLightboxCaption").textContent = `Ảnh xác nhận · ${order.customerName} · ${proofDate}`;
   $("#proofLightbox").classList.remove("hidden");
   document.body.style.overflow = "hidden";
 }
@@ -546,7 +630,121 @@ function openProofLightbox(order) {
 function closeProofLightbox() {
   $("#proofLightbox").classList.add("hidden");
   $("#proofLightboxImage").removeAttribute("src");
+  currentProofOrder = null;
   document.body.style.overflow = "";
+}
+
+function safeFileName(value = "KhachHang") {
+  const normalized = String(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  return normalized.replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "KhachHang";
+}
+
+function roundedRect(ctx, x, y, width, height, radius) {
+  const r = Math.min(radius, width / 2, height / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + width, y, x + width, y + height, r);
+  ctx.arcTo(x + width, y + height, x, y + height, r);
+  ctx.arcTo(x, y + height, x, y, r);
+  ctx.arcTo(x, y, x + width, y, r);
+  ctx.closePath();
+}
+
+async function downloadBrandedProof() {
+  const order = currentProofOrder;
+  if (!order?.proofImage) {
+    showToast("Không tìm thấy ảnh xác nhận để tải.");
+    return;
+  }
+  try {
+    const image = new Image();
+    image.src = order.proofImage;
+    await new Promise((resolve, reject) => {
+      image.onload = resolve;
+      image.onerror = () => reject(new Error("Không thể đọc ảnh xác nhận."));
+    });
+
+    const maxWidth = 1800;
+    const scale = Math.min(1, maxWidth / image.naturalWidth);
+    const imageWidth = Math.max(1, Math.round(image.naturalWidth * scale));
+    const imageHeight = Math.max(1, Math.round(image.naturalHeight * scale));
+    const pad = Math.max(24, Math.round(imageWidth * 0.025));
+    const headerHeight = Math.max(112, Math.round(imageWidth * 0.105));
+    const footerHeight = Math.max(96, Math.round(imageWidth * 0.09));
+    const canvas = document.createElement("canvas");
+    canvas.width = imageWidth + pad * 2;
+    canvas.height = imageHeight + headerHeight + footerHeight + pad * 2;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Thiết bị không hỗ trợ xuất ảnh.");
+
+    // Ocean-blue branded card and rounded outer frame.
+    const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+    gradient.addColorStop(0, "#075985");
+    gradient.addColorStop(0.52, "#0284c7");
+    gradient.addColorStop(1, "#38bdf8");
+    roundedRect(ctx, 0, 0, canvas.width, canvas.height, Math.max(26, pad));
+    ctx.fillStyle = gradient;
+    ctx.fill();
+
+    const innerX = pad;
+    const innerY = pad + headerHeight;
+    const innerW = imageWidth;
+    const innerH = imageHeight;
+    ctx.fillStyle = "#ffffff";
+    roundedRect(ctx, innerX, innerY, innerW, innerH, Math.max(12, pad * 0.45));
+    ctx.fill();
+    ctx.save();
+    roundedRect(ctx, innerX, innerY, innerW, innerH, Math.max(12, pad * 0.45));
+    ctx.clip();
+    ctx.drawImage(image, innerX, innerY, innerW, innerH);
+    ctx.restore();
+
+    const left = pad + 6;
+    const usableWidth = canvas.width - pad * 2 - 12;
+    const name = String(order.customerName || "Khách hàng");
+    const phone = String(order.phone || "Chưa có số điện thoại");
+    const doneDate = order.completedAt
+      ? formatDate(getLocalDate(new Date(order.completedAt)))
+      : (order.proofImageAt ? formatDate(getLocalDate(new Date(order.proofImageAt))) : formatDate(order.date));
+    const headerTop = Math.max(28, Math.round(pad * 0.75));
+    ctx.fillStyle = "#ffffff";
+    ctx.textBaseline = "top";
+    ctx.textAlign = "left";
+    ctx.font = `800 ${Math.max(22, Math.round(imageWidth * 0.035))}px system-ui, -apple-system, Segoe UI, sans-serif`;
+    let customerLine = `${name}  ·  ${phone}`;
+    while (ctx.measureText(customerLine).width > usableWidth && ctx.font.match(/(\d+)px/)) {
+      const fontSize = Number(ctx.font.match(/(\d+)px/)[1]);
+      if (fontSize <= 16) break;
+      ctx.font = `800 ${fontSize - 2}px system-ui, -apple-system, Segoe UI, sans-serif`;
+    }
+    ctx.fillText(customerLine, left, headerTop, usableWidth);
+    ctx.font = `500 ${Math.max(15, Math.round(imageWidth * 0.018))}px system-ui, -apple-system, Segoe UI, sans-serif`;
+    ctx.fillStyle = "rgba(255,255,255,.9)";
+    ctx.fillText(`Ngày hoàn thành: ${doneDate}`, left, headerTop + Math.max(38, Math.round(imageWidth * 0.047)), usableWidth);
+
+    const footerY = innerY + innerH + Math.max(18, Math.round(pad * 0.65));
+    ctx.fillStyle = "#ffffff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = `700 ${Math.max(17, Math.round(imageWidth * 0.022))}px system-ui, -apple-system, Segoe UI, sans-serif`;
+    ctx.fillText("Tom Shipper by Duy Hoang Network", canvas.width / 2, footerY + footerHeight * 0.36, canvas.width - pad * 2);
+    ctx.font = `500 ${Math.max(13, Math.round(imageWidth * 0.015))}px system-ui, -apple-system, Segoe UI, sans-serif`;
+    ctx.fillStyle = "rgba(255,255,255,.9)";
+    ctx.fillText("BẰNG CHỨNG GIAO HÀNG", canvas.width / 2, footerY + footerHeight * 0.70, canvas.width - pad * 2);
+
+    const blob = await new Promise((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error("Không thể xuất PNG.")), "image/png"));
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `Don_Hoan_Thanh_${safeFileName(name)}.png`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    showToast("Đã tạo và tải ảnh xác thực có khung thương hiệu.");
+  } catch (error) {
+    showToast(error.message || "Không thể tải ảnh xác thực.");
+  }
 }
 
 function compressImageToDataURL(file, maxDimension = 1440, quality = 0.78) {
@@ -633,6 +831,7 @@ function initEvents() {
 
   $("#proofPhotoInput").addEventListener("change", handleProofPhotoSelected);
   $("#closeProofLightbox").addEventListener("click", closeProofLightbox);
+  $("#downloadProofImage").addEventListener("click", downloadBrandedProof);
   $("#proofLightbox").addEventListener("click", (event) => {
     if (event.target === $("#proofLightbox")) closeProofLightbox();
   });
